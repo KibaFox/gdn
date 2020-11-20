@@ -1,0 +1,26 @@
+run:
+  tests: true
+
+linters:
+  enable-all: true
+
+linters-settings:
+  gci:
+    local-prefixes: gitlab.com/kibafox/gdn
+  gocyclo:
+    min-complexity: 12
+  govet:
+    check-shadowing: true
+  misspell:
+    locale: US
+  lll:
+    line-length: 80
+    tab-width: 4
+
+issues:
+ exclude-rules:
+    # Magefiles will mistakenly report unused and deadcode.
+    - path: magefile.go
+      linters:
+        - deadcode
+        - unused
