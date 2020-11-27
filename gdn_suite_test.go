@@ -125,7 +125,7 @@ func filehash(path string) (string, error) {
 
 	for {
 		n, rErr := file.Read(buf)
-		if rErr == io.EOF {
+		if errors.Is(rErr, io.EOF) {
 			break
 		} else if rErr != nil {
 			return "", fmt.Errorf("error reading %s: %w", path, rErr)

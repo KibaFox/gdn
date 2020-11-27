@@ -26,18 +26,18 @@ const SakuraURL = "https://github.com/oxalorg/sakura/archive/1.3.0.tar.gz"
 // Clean removes the dist/ directory and any temporary directories from testing.
 func Clean() error {
 	if err := os.RemoveAll("dist"); err != nil {
-		return err
+		return fmt.Errorf("could not remove ./dist/ dir: %w", err)
 	}
 
 	// Remove temporary directories.
 	tmpPaths, err := filepath.Glob("tmp*")
 	if err != nil {
-		return err
+		return fmt.Errorf("could not find temp dir: %w", err)
 	}
 
 	for _, tmp := range tmpPaths {
 		if err := os.RemoveAll(tmp); err != nil {
-			return err
+			return fmt.Errorf("could not remove temp dir: %s: %w", tmp, err)
 		}
 	}
 
@@ -52,7 +52,7 @@ func Build() error {
 	}
 
 	if err := os.MkdirAll("dist", 0777); err != nil {
-		return err
+		return fmt.Errorf("could not create ./dist/ dir: %w", err)
 	}
 
 	return sh.Run("go", "build", "-o", fmt.Sprintf("dist/%s", name),
@@ -67,7 +67,7 @@ func Install() error {
 // Lint will perform style checks and static analysis on the Go code.
 func Lint() error {
 	if err := sh.Run("golangci-lint", "run"); err != nil {
-		return err
+		return err // nolint: wrapcheck
 	}
 
 	return sh.Run("golangci-lint", "run", "magefile.go")
@@ -106,7 +106,7 @@ func (Gen) Test() error {
 	)
 
 	if err := root.Scan(); err != nil {
-		return err
+		return err // nolint: wrapcheck
 	}
 
 	return root.Grow()

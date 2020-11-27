@@ -1,6 +1,7 @@
 package gdn
 
 import (
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -45,19 +46,19 @@ func ChExt(path, ext string) string {
 func CopyFile(src, dest string) error {
 	input, err := os.Open(src)
 	if err != nil {
-		return err
+		return fmt.Errorf("could not open src (%s) to copy: %w", src, err)
 	}
 	defer input.Close()
 
 	output, err := os.Create(dest)
 	if err != nil {
-		return err
+		return fmt.Errorf("could not create dest (%s) to copy: %w", dest, err)
 	}
 	defer output.Close()
 
 	_, err = io.Copy(output, input)
 	if err != nil {
-		return err
+		return fmt.Errorf("error copying (%s) to (%s): %w", src, dest, err)
 	}
 
 	return output.Close()
