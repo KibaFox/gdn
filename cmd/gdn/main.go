@@ -4,7 +4,7 @@ import (
 	"log"
 	"os"
 
-	"gitlab.com/kibafox/gdn"
+	"git.sr.ht/~kiba/gdn"
 )
 
 func main() {

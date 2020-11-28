@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"gitlab.com/kibafox/gdn"
+	"git.sr.ht/~kiba/gdn"
 )
 
 func TestTypeByExtension(t *testing.T) {

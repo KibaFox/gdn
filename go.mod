@@ -1,4 +1,4 @@
-module gitlab.com/kibafox/gdn
+module git.sr.ht/~kiba/gdn
 
 go 1.14
 

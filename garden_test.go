@@ -6,7 +6,7 @@ import (
 	"reflect"
 	"testing"
 
-	"gitlab.com/kibafox/gdn"
+	"git.sr.ht/~kiba/gdn"
 )
 
 const testsrc = "testdata/src"
