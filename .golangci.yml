@@ -87,4 +87,5 @@ issues:
       linters:
         - dupl
         - goconst
+        - goerr113
         - gosec

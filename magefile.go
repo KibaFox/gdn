@@ -1,29 +1,16 @@
-//+build mage
+// +build mage
 
 package main
 
 import (
-	"context"
 	"fmt"
-	"io"
-	"io/ioutil"
-	"log"
-	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
-	"runtime"
-
-	"github.com/go-bindata/go-bindata/v3"
-	"github.com/magefile/mage/mg"
-	"github.com/magefile/mage/sh"
-
-	"gitlab.com/kibafox/gdn"
+	"strings"
 )
 
-// SakuraURL is the URL to download a release of Sakura (a CSS theme).
-const SakuraURL = "https://github.com/oxalorg/sakura/archive/1.3.0.tar.gz"
-
-// Clean removes the dist/ directory and any temporary directories from testing.
+// Clean removes the ./dist/ directory and any temp directories.
 func Clean() error {
 	if err := os.RemoveAll("dist"); err != nil {
 		return fmt.Errorf("could not remove ./dist/ dir: %w", err)
@@ -32,163 +19,69 @@ func Clean() error {
 	// Remove temporary directories.
 	tmpPaths, err := filepath.Glob("tmp*")
 	if err != nil {
-		return fmt.Errorf("could not find temp dir: %w", err)
+		return fmt.Errorf("error globbing `tmp*`: %w", err)
 	}
 
 	for _, tmp := range tmpPaths {
 		if err := os.RemoveAll(tmp); err != nil {
-			return fmt.Errorf("could not remove temp dir: %s: %w", tmp, err)
+			return fmt.Errorf("could not remove tmp dir: %s: %w", tmp, err)
 		}
 	}
 
 	return nil
 }
 
-// Build gdn into the dist/ directory.
+// Build compiles `gdn` into the ./dist/ directory.
 func Build() error {
-	name := "gdn"
-	if runtime.GOOS == "windows" {
-		name += ".exe"
+	if err := os.MkdirAll("dist", 0o755); err != nil {
+		return fmt.Errorf("could not make ./dist/ dir: %w", err)
 	}
 
-	if err := os.MkdirAll("dist", 0777); err != nil {
-		return fmt.Errorf("could not create ./dist/ dir: %w", err)
+	if err := run("go", "build", "-o", "dist", "./cmd/gdn"); err != nil {
+		return fmt.Errorf("problem building `gdn`: %w", err)
 	}
 
-	return sh.Run("go", "build", "-o", fmt.Sprintf("dist/%s", name),
-		"./cmd/gdn")
+	return nil
 }
 
-// Install will install via `go install ./cmd/gdn`.
+// Install will install `gdn` via go install.
 func Install() error {
-	return sh.Run("go", "install", "./cmd/gdn")
+	if err := run("go", "install", "./cmd/gdn"); err != nil {
+		return fmt.Errorf("problem installing `gdn`: %w", err)
+	}
+
+	return nil
 }
 
-// Lint will perform style checks and static analysis on the Go code.
+// Lint runs golangci-lint on the project.
 func Lint() error {
-	if err := sh.Run("golangci-lint", "run"); err != nil {
-		return err // nolint: wrapcheck
+	if err := run("golangci-lint", "run"); err != nil {
+		return fmt.Errorf("problem linting project: %w", err)
 	}
 
-	return sh.Run("golangci-lint", "run", "magefile.go")
+	if err := run("golangci-lint", "run", "magefile.go"); err != nil {
+		return fmt.Errorf("problem linting magefile.go: %w", err)
+	}
+
+	return nil
 }
 
-// Test will run all tests.
+// Test runs all tests for the project.
 func Test() error {
-	return sh.Run("ginkgo", "-v", "test", "./...")
-}
-
-// Gen is for targets that provide some form of code generation.
-type Gen mg.Namespace
-
-func (Gen) BinData() error {
-	cfg := bindata.NewConfig()
-	cfg.Package = "gdn"
-	cfg.Input = []bindata.InputConfig{
-		{
-			Path:      "./assets/sakura",
-			Recursive: false,
-		},
-	}
-
-	if err := bindata.Translate(cfg); err != nil {
-		return fmt.Errorf("error generating bindata: %w", err)
+	if err := run("go", "test", "./..."); err != nil {
+		return fmt.Errorf("problem testing project: %w", err)
 	}
 
 	return nil
 }
 
-// Test generates testdata/expected from testdata/src.
-func (Gen) Test() error {
-	root := gdn.NewTree(
-		filepath.Join("testdata", "src"),
-		filepath.Join("testdata", "expected"),
-	)
+func run(cmd string, args ...string) (err error) {
+	c := exec.Command(cmd, args...)
+	c.Stdout = os.Stdout
+	c.Stderr = os.Stderr
+	c.Stdin = os.Stdin
 
-	if err := root.Scan(); err != nil {
-		return err // nolint: wrapcheck
-	}
+	fmt.Println("exec:", cmd, strings.Join(args, " "))
 
-	return root.Grow()
-}
-
-type Fetch mg.Namespace
-
-// Sakura fetches and extracts the sakura CSS theme into the ./assets/sakura
-// directory.
-func (Fetch) Sakura(ctx context.Context) error {
-	tmp, err := ioutil.TempDir(".", "tmp")
-	if err != nil {
-		return fmt.Errorf("could not create tmp dir: %w", err)
-	}
-
-	defer os.RemoveAll(tmp)
-
-	dl := filepath.Join(tmp, "sakura.tar.gz")
-
-	if _, err := os.Stat(dl); err != nil {
-		if err := downloadFile(ctx, dl, SakuraURL); err != nil {
-			return fmt.Errorf("error downloading sakura: %w", err)
-		}
-	} else {
-		log.Printf("%s already exists; skipping download", dl)
-	}
-
-	destDir := filepath.Join("assets", "sakura")
-
-	if err := os.MkdirAll(destDir, 0755); err != nil {
-		return fmt.Errorf("error making sakura dir: %w", err)
-	}
-
-	if err := sh.Run("tar",
-		"-C", destDir,
-		"--strip-components", "1",
-		"-xzvf", dl,
-		"*/LICENSE.txt",
-		"*/css/normalize.css",
-		"*/css/sakura.css",
-		"*/css/sakura-dark.css",
-	); err != nil {
-		return fmt.Errorf("error extracting sakura: %w", err)
-	}
-
-	var (
-		srcpath = filepath.Join(destDir, "source.txt")
-		srctxt  = []byte(SakuraURL + "\n")
-	)
-
-	if err := ioutil.WriteFile(srcpath, srctxt, 0600); err != nil {
-		return fmt.Errorf("error writing download URL to %s: %w", srcpath, err)
-	}
-
-	return nil
-}
-
-// downloadFile will download a url to a local file.
-func downloadFile(ctx context.Context, dst, url string) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return fmt.Errorf("error building request: %w", err)
-	}
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("error getting %s: %w", url, err)
-	}
-
-	defer resp.Body.Close()
-
-	f, err := os.Create(dst)
-	if err != nil {
-		return fmt.Errorf("error creating %s: %w", dst, err)
-	}
-
-	defer f.Close()
-
-	_, err = io.Copy(f, resp.Body)
-	if err != nil {
-		return fmt.Errorf("error copying response to %s: %w", dst, err)
-	}
-
-	return nil
+	return c.Run()
 }

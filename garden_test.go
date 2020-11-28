@@ -1,202 +1,181 @@
 package gdn_test
 
 import (
-	"io/ioutil"
+	"errors"
 	"os"
-	"path/filepath"
-
-	. "github.com/onsi/ginkgo"
-	. "github.com/onsi/gomega"
-	. "github.com/onsi/gomega/gstruct"
+	"reflect"
+	"testing"
 
 	"gitlab.com/kibafox/gdn"
 )
 
-var _ = Describe("Garden", func() {
-	Context("Branch NewTree", func() {
-		It("can create a root branch", func() {
-			root := gdn.NewTree("mygarden/src", "mygarden/dest")
-			Expect(root.Src).Should(Equal("mygarden/src"))
-			Expect(root.Dst).Should(Equal("mygarden/dest"))
-			Expect(root.Path).Should(Equal("/"))
-			Expect(root.Branches).Should(BeEmpty())
-			Expect(root.Leaves).Should(BeEmpty())
-		})
-	})
+const testsrc = "testdata/src"
 
-	Context("Branch Scan", func() {
-		It("scans input paths", func() {
-			root := gdn.NewTree("testdata/src", "tmp")
+func TestNewTree(t *testing.T) {
+	root := gdn.NewTree("mygarden/src", "mygarden/dest")
+	expected := gdn.Branch{
+		Src:  "mygarden/src",
+		Dst:  "mygarden/dest",
+		Path: "/",
+	}
 
-			Expect(root.Scan()).Should(Succeed())
+	if !reflect.DeepEqual(root, expected) {
+		t.Errorf("new tree %+v does not match expected %+v", root, expected)
+	}
+}
 
-			bi := func(element interface{}) string {
-				return element.(*gdn.Branch).Path
-			}
+func TestBranchScan(t *testing.T) {
+	t.Logf("+test scanning %s", testsrc)
 
-			li := func(element interface{}) string {
-				return element.(*gdn.Leaf).Path
-			}
+	root := gdn.NewTree(testsrc, "tmp")
 
-			Expect(root.Branches).Should(MatchAllElements(bi, Elements{
-				"/example": PointTo(MatchAllFields(Fields{
-					"Src":      Equal("testdata/src/example"),
-					"Dst":      Equal("tmp/example"),
-					"Path":     Equal("/example"),
-					"Branches": BeNil(),
-					"Leaves": MatchAllElements(li, Elements{
-						"/example/mytext.txt": PointTo(MatchAllFields(Fields{
-							"Src":    Equal("testdata/src/example/mytext.txt"),
-							"DstDir": Equal("tmp/example"),
-							"Path":   Equal("/example/mytext.txt"),
-							"Typ":    Equal(gdn.Unknown),
-						})),
+	if err := root.Scan(); err != nil {
+		t.Fatalf("scan encountered an unexpected error: %v", err)
+	}
 
-						"/example/mydoc.md": PointTo(MatchAllFields(Fields{
-							"Src":    Equal("testdata/src/example/mydoc.md"),
-							"DstDir": Equal("tmp/example"),
-							"Path":   Equal("/example/mydoc.md"),
-							"Typ":    Equal(gdn.Markdown),
-						})),
-					}),
-				})),
-			}))
-		})
+	expected := gdn.Branch{
+		Src:  testsrc,
+		Dst:  "tmp",
+		Path: "/",
+		Branches: []*gdn.Branch{
+			{
+				Src:  testsrc + "/example",
+				Dst:  "tmp/example",
+				Path: "/example",
+				Leaves: []*gdn.Leaf{
+					{
+						Src:    testsrc + "/example/mydoc.md",
+						DstDir: "tmp/example",
+						Path:   "/example/mydoc.md",
+						Typ:    gdn.Markdown,
+					},
+					{
+						Src:    testsrc + "/example/mytext.txt",
+						DstDir: "tmp/example",
+						Path:   "/example/mytext.txt",
+						Typ:    gdn.Unknown,
+					},
+				},
+			},
+		},
+	}
 
-		It("gives error when the source path is not set", func() {
-			root := gdn.NewTree("", "tmp")
-			Expect(root.Scan()).Should(BeAssignableToTypeOf(gdn.ErrSrcNotSet))
-		})
+	if !reflect.DeepEqual(root, expected) {
+		t.Errorf("scanned tree %s does not match expected %s",
+			pretty(t, root), pretty(t, expected))
+	}
 
-		It("gives error when the destination path is not set", func() {
-			root := gdn.NewTree(filepath.Join("testdata", "src"), "")
-			Expect(root.Scan()).Should(BeAssignableToTypeOf(gdn.ErrDstNotSet))
-		})
+	t.Log("-test when source path is not set")
 
-		It("gives error when the scanning an empty directory", func() {
-			tmp := tmpDir()
-			defer os.RemoveAll(tmp)
+	root = gdn.NewTree("", "tmp")
+	if err := root.Scan(); !errors.Is(err, gdn.ErrSrcNotSet) {
+		t.Error("expected ErrSrcNotSet when source path is not set")
+	}
 
-			root := gdn.NewTree(tmp, "tmp")
-			Expect(root.Grow()).Should(BeAssignableToTypeOf(gdn.ErrEmptyTree))
-		})
-	})
+	t.Log("-test when destination path is not set")
 
-	Context("Branch Grow", func() {
-		It("grows testdata/src to match testdata/expected", func() {
-			tmp := tmpDir()
-			defer os.RemoveAll(tmp)
+	root = gdn.NewTree(testsrc, "")
+	if err := root.Scan(); !errors.Is(err, gdn.ErrDstNotSet) {
+		t.Error("expected ErrDstNotSet when destination path is not set")
+	}
 
-			root := gdn.NewTree(filepath.Join("testdata", "src"), tmp)
+	t.Log("-test when scanning an empty directory")
 
-			Expect(root.Scan()).To(Succeed())
+	tmp := tmpDir(t)
+	defer os.RemoveAll(tmp)
 
-			Expect(root.Grow()).To(Succeed())
+	root = gdn.NewTree(tmp, "tmp")
+	if err := root.Scan(); !errors.Is(err, gdn.ErrEmptyTree) {
+		t.Error("expected ErrEmptyTree when scanning an empty directory")
+	}
+}
 
-			Expect(tmp).Should(MatchDir(filepath.Join("testdata", "expected")))
-		})
+func TestBranchGrow(t *testing.T) {
+	tmp := tmpDir(t)
+	defer os.RemoveAll(tmp)
 
-		It("gives error when the source path is not set", func() {
-			root := gdn.NewTree("", "tmp")
-			Expect(root.Grow()).Should(BeAssignableToTypeOf(gdn.ErrSrcNotSet))
-		})
+	t.Log("+test that growing testdata/src matches testdata/expected")
 
-		It("gives error when the destination path is not set", func() {
-			root := gdn.NewTree(filepath.Join("testdata", "src"), "")
-			Expect(root.Grow()).Should(BeAssignableToTypeOf(gdn.ErrDstNotSet))
-		})
+	root := gdn.NewTree(testsrc, tmp)
 
-		It("warns when the branch is empty and not scanned", func() {
-			root := gdn.NewTree(filepath.Join("testdata", "src"), "tmp")
-			Expect(root.Grow()).Should(BeAssignableToTypeOf(gdn.ErrNotScanned))
-		})
-	})
+	if err := root.Scan(); err != nil {
+		t.Fatalf("scan encountered an unexpected error: %v", err)
+	}
 
-	Context("Leaf", func() {
-		It("sets destination extension to .html for markdown files", func() {
-			leaf := gdn.Leaf{
+	if err := root.Grow(); err != nil {
+		t.Fatalf("grow encountered an unexpected error: %v", err)
+	}
+
+	matchDir(t, tmp, "testdata/expected")
+
+	t.Log("-test when the source path is not set")
+
+	root = gdn.NewTree("", "tmp")
+	if err := root.Grow(); !errors.Is(err, gdn.ErrSrcNotSet) {
+		t.Error("expected ErrSrcNotSet when source path is not set")
+	}
+
+	t.Log("-test when destination path is not set")
+
+	root = gdn.NewTree(testsrc, "")
+	if err := root.Grow(); !errors.Is(err, gdn.ErrDstNotSet) {
+		t.Error("expected ErrDstNotSet when destination path is not set")
+	}
+
+	t.Log("-test to warn with the branch is empty and not scanned")
+
+	root = gdn.NewTree(testsrc, "tmp")
+	if err := root.Grow(); !errors.Is(err, gdn.ErrNotScanned) {
+		t.Error("expected ErrNotScanned when scan was not run")
+	}
+}
+
+func TestLeafDst(t *testing.T) {
+	tbls := []struct {
+		leaf     gdn.Leaf
+		expected string
+	}{
+		{
+			gdn.Leaf{
 				Src:    "asdf/my.md",
 				DstDir: "qwer",
 				Path:   "/my.md",
 				Typ:    gdn.Markdown,
-			}
-
-			Expect(leaf.Dst()).Should(Equal("qwer/my.html"))
-		})
-
-		It("keeps the same destination extension for unknown files", func() {
-			leaf := gdn.Leaf{
+			},
+			"qwer/my.html",
+		},
+		{
+			gdn.Leaf{
 				Src:    "asdf/my.txt",
 				DstDir: "qwer",
 				Path:   "/my.txt",
 				Typ:    gdn.Unknown,
-			}
+			},
+			"qwer/my.txt",
+		},
+	}
 
-			Expect(leaf.Dst()).Should(Equal("qwer/my.txt"))
-		})
-	})
+	for _, tbl := range tbls {
+		result := tbl.leaf.Dst()
+		if result != tbl.expected {
+			t.Errorf("Leaf %+v .DST() gave: %s, expecting: %s",
+				tbl.leaf, result, tbl.expected)
+		}
+	}
+}
 
-	Context("Leaf Grow", func() {
-		It("copies unknown files", func() {
-			tmp := tmpDir()
-			defer os.RemoveAll(tmp)
+func TestLeafGrow(t *testing.T) {
+	t.Log("-test ensures error is given when source path is not set")
 
-			src := filepath.Join("testdata", "src", "example", "mytext.txt")
-			dst := filepath.Join(tmp, "mytext.txt")
+	leaf := gdn.Leaf{Src: "", DstDir: "tmp"}
+	if err := leaf.Grow(); !errors.Is(err, gdn.ErrSrcNotSet) {
+		t.Error("expected ErrSrcNotSet when source path is not set")
+	}
 
-			leaf := gdn.Leaf{
-				Src:    src,
-				DstDir: tmp,
-				Path:   "/example/mytext.txt",
-				Typ:    gdn.Unknown,
-			}
+	t.Log("-test ensures error is given when destination path is not set")
 
-			Expect(leaf.Grow()).Should(Succeed())
-			Expect(dst).Should(BeARegularFile())
-
-			srcByt, err := ioutil.ReadFile(src)
-			Expect(err).ShouldNot(HaveOccurred())
-
-			dstByt, err := ioutil.ReadFile(dst)
-			Expect(err).ShouldNot(HaveOccurred())
-
-			Expect(dstByt).Should(Equal(srcByt))
-		})
-
-		It("renders markdown files", func() {
-			tmp := tmpDir()
-			defer os.RemoveAll(tmp)
-
-			src := filepath.Join("testdata", "src", "example", "mydoc.md")
-			dst := filepath.Join(tmp, "mydoc.html")
-
-			leaf := gdn.Leaf{
-				Src:    src,
-				DstDir: tmp,
-				Path:   "/example/mytext.md",
-				Typ:    gdn.Markdown,
-			}
-
-			Expect(leaf.Grow()).Should(Succeed())
-			Expect(dst).Should(BeARegularFile())
-
-			dstByt, err := ioutil.ReadFile(dst)
-			Expect(err).ShouldNot(HaveOccurred())
-
-			Expect(string(dstByt)).Should(Equal(`<h1>My Document</h1>
-
-<p>This is <em>my</em> document with some <strong>Markdown</strong>.</p>
-`))
-		})
-
-		It("gives error when the source path is not set", func() {
-			leaf := gdn.Leaf{Src: "", DstDir: "tmp"}
-			Expect(leaf.Grow()).Should(BeAssignableToTypeOf(gdn.ErrSrcNotSet))
-		})
-
-		It("gives error when the destination path is not set", func() {
-			leaf := gdn.Leaf{Src: "tmp", DstDir: ""}
-			Expect(leaf.Grow()).Should(BeAssignableToTypeOf(gdn.ErrDstNotSet))
-		})
-	})
-})
+	leaf = gdn.Leaf{Src: "tmp", DstDir: ""}
+	if err := leaf.Grow(); !errors.Is(err, gdn.ErrDstNotSet) {
+		t.Error("expected ErrDstNotSet when destination path is not set")
+	}
+}

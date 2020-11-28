@@ -3,6 +3,7 @@ package gdn_test
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -10,61 +11,122 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-
-	. "github.com/onsi/ginkgo"
-	. "github.com/onsi/gomega"
-	"github.com/onsi/gomega/types"
 )
 
 const bufSize = 4096
 
-func TestGdn(t *testing.T) {
-	RegisterFailHandler(Fail)
-	RunSpecs(t, "gdn Suite")
-}
-
-func tmpDir() string {
+// tmpDir creates a new temporary directory with the tmp prefix.
+// Calls t.Fatalf() if an error occurs.
+func tmpDir(t *testing.T) string {
 	tmp, err := ioutil.TempDir(".", "tmp")
-	Expect(err).ToNot(HaveOccurred())
+	if err != nil {
+		t.Fatalf("could not create tmp dir: %v", err)
+	}
 
 	return tmp
 }
 
-// MatchDir compares one directory with another.
-func MatchDir(expected interface{}) types.GomegaMatcher {
-	return &matchDir{
-		expected: expected,
+// pretty converts an interface into a pretty representation by converting it to
+// JSON.  This is to help debug structs by printing the values.
+// Calls t.Fatalf() if an error occurs.
+func pretty(t *testing.T, i interface{}) string {
+	s, err := json.MarshalIndent(i, "", "\t")
+	if err != nil {
+		t.Fatalf("could not pretty print %+v by converting to JSON: %v", i, err)
+	}
+
+	return string(s)
+}
+
+// pathIsRegularFile expects the given path to be a regular file.
+// Calls t.Errorf() if the path is not a regular file.
+func pathIsRegularFile(t *testing.T, path string) bool {
+	info, err := os.Stat(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			t.Errorf("path does not exist: %s", path)
+		} else {
+			t.Errorf("error getting info for path: %s: %v", path, err)
+		}
+
+		return false
+	}
+
+	if !info.Mode().IsRegular() {
+		t.Errorf("path is not a regular file: %s", path)
+		return false
+	}
+
+	return true
+}
+
+// isDir expects the given path to be a directory.
+// Calls t.Errorf() if the path is not a directory.
+func pathIsDir(t *testing.T, path string) bool {
+	info, err := os.Stat(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			t.Errorf("path does not exist: %s", path)
+		} else {
+			t.Errorf("error getting info for path: %s: %v", path, err)
+		}
+
+		return false
+	}
+
+	if !info.IsDir() {
+		t.Errorf("path is not a directory: %s", path)
+		return false
+	}
+
+	return true
+}
+
+// matchFile compares the contents of two files and expects them to be the same.
+// Calls t.Errorf() if an they do not match.
+func matchFile(t *testing.T, actualFile, expectedFile string) {
+	a := filehash(t, actualFile)
+	e := filehash(t, expectedFile)
+
+	if a != e {
+		t.Errorf("%s contents does not match contents of %s",
+			actualFile, expectedFile)
 	}
 }
 
-type matchDir struct {
-	expected interface{}
-}
+// matchDir compares two directories and expects them to match.
+// Calls t.Errorf() if they do not match.
+func matchDir(t *testing.T, actualDir, expectedDir string) {
+	a := mapDir(t, actualDir)
+	e := mapDir(t, expectedDir)
 
-var ErrNotString = errors.New("type is not string")
+	for efile, einfo := range e {
+		ainfo, exists := a[efile]
+		if !exists {
+			t.Errorf("%s not present in actual", efile)
+			continue
+		}
 
-func (matcher *matchDir) Match(actual interface{}) (success bool, err error) {
-	expectedDir, ok := matcher.expected.(string)
-	if !ok {
-		return false, fmt.Errorf("expected %#v: %w",
-			matcher.expected, ErrNotString)
+		if einfo.isDir != ainfo.isDir {
+			if einfo.isDir {
+				t.Errorf("%s is a directory, but actual is not", efile)
+			} else {
+				t.Errorf("%s is a file, but actual is not", efile)
+			}
+
+			continue
+		}
+
+		if einfo.hash != ainfo.hash {
+			t.Errorf("%s contents does not match expected", efile)
+		}
 	}
 
-	Expect(expectedDir).Should(BeADirectory())
-
-	actualDir, ok := actual.(string)
-	if !ok {
-		return false, fmt.Errorf("actual %#v: %w", actual, ErrNotString)
+	for afile := range a {
+		if _, exists := e[afile]; !exists {
+			t.Errorf("%s is present in actual, but is not in expected", afile)
+		}
 	}
-
-	e := mapDir(expectedDir)
-	a := mapDir(actualDir)
-
-	Expect(e).ShouldNot(BeEmpty(), "expected dir should not be empty")
-	Expect(a).ShouldNot(BeEmpty(), "actual dir should not be empty")
-	Expect(a).Should(Equal(e))
-
-	return true, nil
 }
 
 type pathInfo struct {
@@ -76,12 +138,15 @@ type pathInfo struct {
 // relative to the given directory. The value is the fileinfo which holds
 // whether the file is a directory; if it's a file, it will also hold the file's
 // sha256 hash.
-func mapDir(dir string) map[string]*pathInfo {
-	Expect(dir).To(BeADirectory(), "%s is not a directory", dir)
+// Calls t.Fatalf() if an error occurs.
+func mapDir(t *testing.T, dir string) map[string]*pathInfo {
+	if !pathIsDir(t, dir) {
+		t.Fatal()
+	}
 
 	m := make(map[string]*pathInfo)
 
-	Expect(filepath.Walk(dir,
+	if err := filepath.Walk(dir,
 		func(path string, info os.FileInfo, err error) error {
 			if err != nil {
 				return fmt.Errorf("error walking path %q: %w", path, err)
@@ -92,31 +157,35 @@ func mapDir(dir string) map[string]*pathInfo {
 			}
 
 			rel, err := filepath.Rel(dir, path)
-			Expect(err).ToNot(HaveOccurred(),
-				"could not get relative path of %s with base of %s", path, dir)
+			if err != nil {
+				return fmt.Errorf(
+					"could not get relative path of %s with base of %s",
+					path, dir)
+			}
 
 			if info.IsDir() {
 				m[rel] = &pathInfo{isDir: true}
 			} else {
-				hash, hErr := filehash(path)
-				if hErr != nil {
-					return fmt.Errorf("error getting hash: %w", hErr)
-				}
-
+				hash := filehash(t, path)
 				m[rel] = &pathInfo{isDir: false, hash: hash}
 			}
 
 			return nil
-		})).To(Succeed())
+		},
+	); err != nil {
+		t.Fatalf("%v", err)
+	}
 
 	return m
 }
 
 // filehash gets the sha256 hash of a file.  This is returned as a hex string.
-func filehash(path string) (string, error) {
+// Calls t.Fatalf() if an error occurs.
+func filehash(t *testing.T, path string) string {
 	file, fErr := os.Open(path)
 	if fErr != nil {
-		return "", fmt.Errorf("problem opening %s for reading: %w", path, fErr)
+		t.Fatalf("problem opening %s for reading: %v", path, fErr)
+		return ""
 	}
 
 	defer file.Close()
@@ -128,30 +197,18 @@ func filehash(path string) (string, error) {
 		if errors.Is(rErr, io.EOF) {
 			break
 		} else if rErr != nil {
-			return "", fmt.Errorf("error reading %s: %w", path, rErr)
+			t.Errorf("error reading %s: %v", path, rErr)
+			return ""
 		}
 
 		if n > 0 {
 			_, shaErr := sha256.Write(buf[:n])
 			if shaErr != nil {
-				return "", fmt.Errorf(
-					"problem writing sha256 for %s: %w", path, shaErr)
+				t.Errorf("problem writing sha256 for %s: %v", path, shaErr)
+				return ""
 			}
 		}
 	}
 
-	return hex.EncodeToString(sha256.Sum(nil)), nil
-}
-
-func (matcher *matchDir) FailureMessage(actual interface{}) (message string) {
-	return fmt.Sprintf("Expected directory\n\t%#v\nto be the same as\n\t%#v",
-		actual, matcher.expected,
-	)
-}
-
-func (matcher *matchDir) NegatedFailureMessage(actual interface{}) (message string) { // nolint: lll
-	return fmt.Sprintf(
-		"Expected directory\n\t%#v\nto not be the same as\n\t%#v",
-		actual, matcher.expected,
-	)
+	return hex.EncodeToString(sha256.Sum(nil))
 }

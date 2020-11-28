@@ -1,58 +1,85 @@
 package gdn_test
 
 import (
-	"io/ioutil"
 	"os"
 	"path/filepath"
-
-	. "github.com/onsi/ginkgo"
-	. "github.com/onsi/gomega"
+	"testing"
 
 	"gitlab.com/kibafox/gdn"
 )
 
-var _ = Describe("File", func() {
-	Context("TypeByExtension", func() {
-		It("correctly gets the Markdown type", func() {
-			Expect(gdn.TypeByExtension(".md")).Should(Equal(gdn.Markdown))
-			Expect(gdn.TypeByExtension(".mkd")).Should(Equal(gdn.Markdown))
-			Expect(gdn.TypeByExtension(".markdown")).Should(Equal(gdn.Markdown))
-		})
+func TestTypeByExtension(t *testing.T) {
+	tbls := []struct {
+		ext      string
+		expected gdn.FileType
+	}{
+		{".md", gdn.Markdown},
+		{".mkd", gdn.Markdown},
+		{".markdown", gdn.Markdown},
+		{".jpeg", gdn.Unknown},
+		{".txt", gdn.Unknown},
+		{".unknown", gdn.Unknown},
+	}
 
-		It("correctly returns the Unknown type", func() {
-			Expect(gdn.TypeByExtension(".jpeg")).Should(Equal(gdn.Unknown))
-			Expect(gdn.TypeByExtension(".txt")).Should(Equal(gdn.Unknown))
-			Expect(gdn.TypeByExtension(".unknown")).Should(Equal(gdn.Unknown))
-		})
-	})
+	for _, tbl := range tbls {
+		result := gdn.TypeByExtension(tbl.ext)
+		if result != tbl.expected {
+			t.Errorf("TypeByExtension(%s) gave: %s, expecting: %s",
+				tbl.ext, result, tbl.expected)
+		}
+	}
+}
 
-	Context("CopyFile", func() {
-		It("copies a file", func() {
-			tmp := tmpDir()
-			defer os.RemoveAll(tmp)
+func TestFileTypeString(t *testing.T) {
+	tbls := []struct {
+		ftype    gdn.FileType
+		expected string
+	}{
+		{gdn.Markdown, "Markdown"},
+		{gdn.Unknown, "Unknown"},
+		{gdn.FileType(256), "Unknown"},
+	}
 
-			src := filepath.Join("testdata", "src", "example", "mytext.txt")
-			dst := filepath.Join(tmp, "mytext.txt")
+	for _, tbl := range tbls {
+		result := tbl.ftype.String()
+		if result != tbl.expected {
+			t.Errorf("FileType(%d).String() gave: %s, expecting: %s",
+				tbl.ftype, result, tbl.expected)
+		}
+	}
+}
 
-			Expect(gdn.CopyFile(src, dst)).To(Succeed())
-			Expect(dst).Should(BeARegularFile())
+func TestCopyFile(t *testing.T) {
+	tmp := tmpDir(t)
+	defer os.RemoveAll(tmp)
 
-			srcByt, err := ioutil.ReadFile(src)
-			Expect(err).ShouldNot(HaveOccurred())
+	src := filepath.Join("testdata", "src", "example", "mytext.txt")
+	dst := filepath.Join(tmp, "mytext.txt")
 
-			dstByt, err := ioutil.ReadFile(dst)
-			Expect(err).ShouldNot(HaveOccurred())
+	if err := gdn.CopyFile(src, dst); err != nil {
+		t.Fatalf("error copying source and destination: %v", err)
+	}
 
-			Expect(dstByt).Should(Equal(srcByt))
-		})
-	})
+	pathIsRegularFile(t, dst)
+	matchFile(t, src, dst)
+}
 
-	Context("ReplaceExt", func() {
-		Expect(gdn.ChExt("some/file", ".html")).
-			Should(Equal("some/file.html"))
-		Expect(gdn.ChExt("/asdf/qwer/markdown.md", ".html")).
-			Should(Equal("/asdf/qwer/markdown.html"))
-		Expect(gdn.ChExt("some/image.png", ".jpeg")).
-			Should(Equal("some/image.jpeg"))
-	})
-})
+func TestChExt(t *testing.T) {
+	tbls := []struct {
+		path     string
+		ext      string
+		expected string
+	}{
+		{"some/file", ".html", "some/file.html"},
+		{"/asdf/qwer/markdown.md", ".html", "/asdf/qwer/markdown.html"},
+		{"some/image.png", ".jpeg", "some/image.jpeg"},
+	}
+
+	for _, tbl := range tbls {
+		result := gdn.ChExt(tbl.path, tbl.ext)
+		if result != tbl.expected {
+			t.Errorf("ChExt(%s, %s) gave: %s, expecting: %s",
+				tbl.path, tbl.ext, result, tbl.expected)
+		}
+	}
+}

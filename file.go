@@ -16,6 +16,17 @@ const (
 	Markdown
 )
 
+func (t FileType) String() string {
+	switch t {
+	case Markdown:
+		return "Markdown"
+	case Unknown:
+		return "Unknown"
+	default:
+		return "Unknown"
+	}
+}
+
 // KnownFileTypes is a map of extensions to their FileType.
 var KnownFileTypes = map[string]FileType{ // nolint: gochecknoglobals
 	".md":       Markdown,
