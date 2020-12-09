@@ -12,10 +12,14 @@ import (
 type FileType uint
 
 const (
+	// Unknown is an unknown file type.
 	Unknown FileType = iota
+	// Markdown is a markdown file type.
 	Markdown
 )
 
+// String returns the string representation of FileType.  For example, if the
+// FileType is Markdown it will return the string "Markdown".
 func (t FileType) String() string {
 	switch t {
 	case Markdown:

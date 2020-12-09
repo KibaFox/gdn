@@ -17,3 +17,6 @@ indent_style = space
 
 [*.md]
 indent_style = space
+
+[gmi/testdata/**.gmi]
+trim_trailing_whitespace = false

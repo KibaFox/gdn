@@ -68,7 +68,8 @@ func Lint() error {
 
 // Test runs all tests for the project.
 func Test() error {
-	if err := run("go", "test", "./..."); err != nil {
+	err := run("go", "test", "-coverprofile=coverage.out", "-bench=.", "./...")
+	if err != nil {
 		return fmt.Errorf("problem testing project: %w", err)
 	}
 

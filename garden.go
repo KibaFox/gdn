@@ -12,10 +12,14 @@ import (
 )
 
 var (
-	ErrSrcNotSet  = errors.New("source path is not set")
-	ErrDstNotSet  = errors.New("destination path is not set")
+	// ErrSrcNotSet occurs when the source path is not set.
+	ErrSrcNotSet = errors.New("source path is not set")
+	// ErrDstNotSet occurs when the destinatio path is not set.
+	ErrDstNotSet = errors.New("destination path is not set")
+	// ErrNotScanned occurs when Scan was not called before Grow.
 	ErrNotScanned = errors.New("need to scan tree before growing it")
-	ErrEmptyTree  = errors.New("scan resulted in an empty tree")
+	// ErrEmptyTree occurs when Scan results in an empty tree.
+	ErrEmptyTree = errors.New("scan resulted in an empty tree")
 )
 
 // Branch represents a directory tree used to generate the pages.

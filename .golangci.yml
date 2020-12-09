@@ -3,6 +3,8 @@ run:
   deadline: 5m
   timeout: 5m
   tests: true
+  skip-dirs:
+    - gmi/internal/toast # copied code for benchmark comparison
 
 linters:
   disable-all: true
@@ -34,7 +36,6 @@ linters:
     - maligned
     - misspell
     - nakedret
-    - nestif
     - nolintlint
     - prealloc
     - scopelint
@@ -60,6 +61,7 @@ linters:
   # - gochecknoinits
   # - gocyclo       # duplicates gocognit
   # - gomnd
+  # - nestif        # duplicates gocognit
   # - nlreturn      # duplicates wsl
   # - noctx         # not using net/http
   # - paralleltest
@@ -67,6 +69,8 @@ linters:
   # - sqlclosecheck # not using sql
 
 linters-settings:
+  gocognit:
+    min-complexity: 18
   govet:
     check-shadowing: true
   misspell:
@@ -76,6 +80,9 @@ linters-settings:
     tab-width: 4
 
 issues:
+  include:
+    - EXC0002
+    - EXC0011
   exclude-rules:
     # Magefiles will mistakenly report unused and deadcode.
     - path: magefile\.go
