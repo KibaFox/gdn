@@ -1,5 +1,7 @@
 # gdn
 
+[![builds.sr.ht status](https://builds.sr.ht/~kiba/gdn.svg)](https://builds.sr.ht/~kiba/gdn?)
+
 Gemini digital garden static site generator.
 
 A digital garden is like a personal knowledge-base or wiki.  Rather than a blog

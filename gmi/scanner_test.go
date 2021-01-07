@@ -15,7 +15,6 @@ import (
 
 const (
 	example = "testdata/example.gmi"
-	spec    = "docs/specification.gmi"
 )
 
 func TestSanner(t *testing.T) {
